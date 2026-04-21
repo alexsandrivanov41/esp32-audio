@@ -25,6 +25,8 @@
 #include <mbedtls/entropy.h>
 #include <atomic>
 
+#define LOG(fmt, ...) Serial.printf("[%7lu] " fmt "\n", millis(), ##__VA_ARGS__)
+
 // ==================== SECURITY HELPERS ====================
 
 // ✅ FIX 1: Input Validation
@@ -86,7 +88,6 @@ const char* DEFAULT_WEB_USER = "admin";
 // ✅ FIX 4: Removed hardcoded default password - will be generated on first boot
 const bool DEFAULT_SSL_ENABLED = false;
 
-#define LOG(fmt, ...) Serial.printf("[%7lu] " fmt "\n", millis(), ##__VA_ARGS__)
 #define SAMPLE_RATE    16000
 #define BUFFER_SIZE    512
 #define RTP_SSRC       1
@@ -126,9 +127,9 @@ const bool DEFAULT_SSL_ENABLED = false;
 #define PSK_HEX_LEN (PSK_LEN * 2 + 1)
 
 // ==================== ГЛОБАЛЬНЫЕ ОБЪЕКТЫ ====================
+WebServer server(80);
 WebSocketsClient webSocket;
 WiFiUDP udp;
-WebServer server(80);
 uint8_t* i2s_buffer = nullptr;
 
 static uint32_t session_start = 0;
@@ -568,6 +569,62 @@ void handleSetPSK() {
     server.send(400, "text/plain", "Missing psk_hex");
 }
 
+// ✅ Config page handler
+void handleConfig() {
+    if (!require_auth()) return;
+    
+    addSecurityHeaders();
+    String html = "<html><body>";
+    html += "<h1>ESP32 Audio Config</h1>";
+    html += "<form method='POST' action='/save'>";
+    html += "<label>Hostname: <input name='hostname' value='" + String(config.hostname) + "'></label><br>";
+    html += "<label>SSID: <input name='ssid' value='" + String(config.wifi_ssid) + "'></label><br>";
+    html += "<label>Pass: <input name='pass' value='********'></label><br>";
+    html += "<label>Server Host: <input name='server_host' value='" + String(config.server_host) + "'></label><br>";
+    html += "<label>WS Port: <input name='server_ws_port' value='" + String(config.server_ws_port) + "'></label><br>";
+    html += "<label>UDP Port: <input name='server_udp_port' value='" + String(config.server_udp_port) + "'></label><br>";
+    html += "<label>Signaling Path: <input name='signaling_path' value='" + String(config.signaling_path) + "'></label><br>";
+    html += "<label><input type='checkbox' name='ssl_enabled'" + (config.ssl_enabled ? " checked" : "") + "> SSL/DTLS</label><br>";
+    html += "<button type='submit'>Save & Reboot</button>";
+    html += "</form>";
+    html += "<hr><h2>Change Password</h2>";
+    html += "<form method='POST' action='/change_password'>";
+    html += "<label>New Pass: <input type='password' name='new_password'></label><br>";
+    html += "<button type='submit'>Change Password</button>";
+    html += "</form>";
+    html += "<hr><a href='/logout'>Logout</a>";
+    html += "</body></html>";
+    server.send(200, "text/html", html);
+}
+
+// ✅ Change password handler
+void handleChangePassword() {
+    if (!require_auth()) return;
+    
+    if (server.hasArg("new_password")) {
+        String new_pass = server.arg("new_password");
+        if (new_pass.length() < 4 || new_pass.length() > 32) {
+            addSecurityHeaders();
+            server.send(400, "text/plain", "Password must be 4-32 chars");
+            return;
+        }
+        
+        strncpy(config.web_pass, new_pass.c_str(), 31);
+        config.web_pass[31] = '\0';
+        sha256_hash(config.web_pass, config.web_pass_hash);
+        saveConfig();
+        
+        addSecurityHeaders();
+        server.sendHeader("Location", "/", true);
+        server.send(302, "text/plain", "");
+        LOG("🔑 Password changed for %s", config.web_user);
+        return;
+    }
+    
+    addSecurityHeaders();
+    server.send(400, "text/plain", "Missing new_password");
+}
+
 void handleSave() {
     if (!require_auth()) return;
     
@@ -892,8 +949,6 @@ void setup() {
     LOG("========================================");
     
     esp_task_wdt_deinit();
-    esp_task_wdt_config_t wdt_config = { .timeout_ms = 10000, .trigger_panic = true };
-    esp_task_wdt_init(&wdt_config);
     esp_task_wdt_add(NULL);
     
     LOG("✅ Setup complete");
