@@ -5,46 +5,69 @@
 *.bin
 *.map
 *.sym
-*.lss
-*.d
-*.o
-*.a
-*.so
-*.dylib
-*.dll
-*.lib
 
 # Build directories
 build/
-output/
 dist/
 
-# IDE files
+# Dependencies
+libraries/
+
+# Temp files
+*.tmp
+*.log
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Logs and temporary files
-*.log
-*.tmp
-*.temp
-
-# Environment files
-.env
-.env.local
-*.env.*
-
 # OS files
 .DS_Store
 Thumbs.db
 
-# Coverage and testing
-.coverage
+# Coverage
 coverage/
 htmlcov/
-.pytest_cache/
-.mypy_cache/
+.coverage
+
+# Python specific
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.so
+*.egg-info/
+.eggs/
+
+# Node.js specific
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Java/Gradle specific
+target/
+.gradle/
+build/
+*.class
+*.jar
+*.war
+
+# C/C++ specific
+*.o
+*.a
+*.obj
+*.out
+*.exe
+*.dll
+*.so
 
 # Compressed files
 *.zip
