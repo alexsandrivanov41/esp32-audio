@@ -8,6 +8,8 @@
 //   ✅ Race Condition Fix (std::atomic)
 //   ✅ Security Headers (CORS, CSP)
 //   ✅ Integer Overflow Protection (RTP seq/ts)
+//   ✅ Scope Fix: server declared before addSecurityHeaders()
+//   ✅ String Concat Fix: handleConfig() checkbox line
 // ============================================================================
 
 #include <Arduino.h>
@@ -27,55 +29,6 @@
 
 #define LOG(fmt, ...) Serial.printf("[%7lu] " fmt "\n", millis(), ##__VA_ARGS__)
 
-// ==================== SECURITY HELPERS ====================
-
-// ✅ FIX 1: Input Validation
-bool isValidHostname(const String& hostname) {
-    if (hostname.length() == 0 || hostname.length() > 31) {
-        LOG("❌ Hostname length invalid: %d", hostname.length());
-        return false;
-    }
-    for (int i = 0; i < hostname.length(); i++) {
-        char c = hostname[i];
-        if (!(isalnum(c) || c == '-' || c == '_')) {
-            LOG("❌ Invalid char in hostname: '%c'", c);
-            return false;
-        }
-    }
-    return true;
-}
-
-bool isValidSSID(const String& ssid) {
-    return ssid.length() > 0 && ssid.length() <= 32;
-}
-
-// ✅ FIX 2: Safe String Loading from EEPROM with null-termination guarantee
-void safeEepromRead(int addr, char* buffer, int max_len) {
-    memset(buffer, 0, max_len);
-    for (int i = 0; i < max_len - 1; i++) {
-        buffer[i] = (char)EEPROM.read(addr + i);
-        if (buffer[i] == '\0') break;
-    }
-    buffer[max_len - 1] = '\0'; // ✅ GUARANTEE null-terminator
-}
-
-void safeEepromWrite(int addr, const char* buffer, int max_len) {
-    int len = strlen(buffer);
-    for (int i = 0; i < max_len; i++) {
-        if (i < len) EEPROM.write(addr + i, buffer[i]);
-        else EEPROM.write(addr + i, '\0');
-    }
-}
-
-// ✅ FIX 3: Security Headers
-void addSecurityHeaders() {
-    server.sendHeader("X-Content-Type-Options", "nosniff");
-    server.sendHeader("X-Frame-Options", "DENY");
-    server.sendHeader("X-XSS-Protection", "1; mode=block");
-    server.sendHeader("Content-Security-Policy", "default-src 'self'");
-    server.sendHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-}
-
 // ==================== КОНФИГУРАЦИЯ ====================
 const char* AP_SSID = "ESP32-Audio-Config";
 const char* AP_PASS = "12345678";
@@ -85,7 +38,6 @@ const int DEFAULT_SERVER_WS_PORT = 8080;
 const int DEFAULT_SERVER_UDP_PORT = 5004;
 const char* DEFAULT_SIGNALING_PATH = "/signaling";
 const char* DEFAULT_WEB_USER = "admin";
-// ✅ FIX 4: Removed hardcoded default password - will be generated on first boot
 const bool DEFAULT_SSL_ENABLED = false;
 
 #define SAMPLE_RATE    16000
@@ -135,7 +87,6 @@ uint8_t* i2s_buffer = nullptr;
 static uint32_t session_start = 0;
 #define SESSION_TIMEOUT 3600000UL
 
-// ✅ FIX 5: Use std::atomic for thread-safe is_recording
 std::atomic<bool> is_recording(false);
 volatile uint32_t recording_start_time = 0;
 
@@ -166,12 +117,56 @@ struct Config {
 volatile uint32_t packets_sent = 0;
 volatile uint32_t bytes_sent = 0;
 volatile uint32_t encrypted_packets = 0;
-// ✅ FIX 6: Explicit uint16_t for RTP sequence (wraps correctly)
 uint16_t rtp_seq = 0;
 uint32_t rtp_ts = 0;
 
 bool wifi_configured = false;
 bool ap_mode = false;
+
+// ==================== SECURITY HELPERS ====================
+void addSecurityHeaders() {
+    server.sendHeader("X-Content-Type-Options", "nosniff");
+    server.sendHeader("X-Frame-Options", "DENY");
+    server.sendHeader("X-XSS-Protection", "1; mode=block");
+    server.sendHeader("Content-Security-Policy", "default-src 'self'");
+    server.sendHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+}
+
+bool isValidHostname(const String& hostname) {
+    if (hostname.length() == 0 || hostname.length() > 31) {
+        LOG("❌ Hostname length invalid: %d", hostname.length());
+        return false;
+    }
+    for (int i = 0; i < hostname.length(); i++) {
+        char c = hostname[i];
+        if (!(isalnum(c) || c == '-' || c == '_')) {
+            LOG("❌ Invalid char in hostname: '%c'", c);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isValidSSID(const String& ssid) {
+    return ssid.length() > 0 && ssid.length() <= 32;
+}
+
+void safeEepromRead(int addr, char* buffer, int max_len) {
+    memset(buffer, 0, max_len);
+    for (int i = 0; i < max_len - 1; i++) {
+        buffer[i] = (char)EEPROM.read(addr + i);
+        if (buffer[i] == '\0') break;
+    }
+    buffer[max_len - 1] = '\0';
+}
+
+void safeEepromWrite(int addr, const char* buffer, int max_len) {
+    int len = strlen(buffer);
+    for (int i = 0; i < max_len; i++) {
+        if (i < len) EEPROM.write(addr + i, buffer[i]);
+        else EEPROM.write(addr + i, '\0');
+    }
+}
 
 // ==================== КРИПТОГРАФИЯ ====================
 void sha256_hash(const char* input, uint8_t* output) {
@@ -253,7 +248,7 @@ void encrypt_audio_data(uint8_t* data, size_t len, uint8_t* output, size_t* out_
     *out_len = padded_len;
     encrypted_packets++;
     
-    free(padded_data);  // ✅ FIX 7: GUARANTEED free()
+    free(padded_data);
     mbedtls_aes_free(&dtls_aes_ctx);
 }
 
@@ -285,7 +280,6 @@ void sendRecordingCommand(bool start) {
         return;
     }
     
-    // ✅ FIX 8: Increased JSON buffer
     DynamicJsonDocument doc(256);
     doc["type"] = start ? "record_start" : "record_stop";
     doc["timestamp"] = millis();
@@ -299,7 +293,6 @@ void sendRecordingCommand(bool start) {
 }
 
 void toggleRecording() {
-    // ✅ FIX 9: Atomic operations for thread safety
     bool new_state = !is_recording.load(std::memory_order_acquire);
     is_recording.store(new_state, std::memory_order_release);
     
@@ -449,7 +442,7 @@ void initAudioOutput() {
     I2S_LOG(I2S_OUT_PORT, "✅ MAX98357A ready");
 }
 
-// ==================== ВЕБОРОБРАБОТЧИКИ ====================
+// ==================== ВЕБОБРАБОТЧИКИ ====================
 void handleFavicon() { server.send(204, "text/plain", ""); }
 
 void handleNotFound() {
@@ -514,7 +507,6 @@ void handleRecordToggle() {
     
     toggleRecording();
     
-    // ✅ FIX 10: Larger JSON buffer
     DynamicJsonDocument doc(256);
     doc["success"] = true;
     doc["recording"] = is_recording.load();
@@ -569,7 +561,6 @@ void handleSetPSK() {
     server.send(400, "text/plain", "Missing psk_hex");
 }
 
-// ✅ Config page handler
 void handleConfig() {
     if (!require_auth()) return;
     
@@ -584,7 +575,12 @@ void handleConfig() {
     html += "<label>WS Port: <input name='server_ws_port' value='" + String(config.server_ws_port) + "'></label><br>";
     html += "<label>UDP Port: <input name='server_udp_port' value='" + String(config.server_udp_port) + "'></label><br>";
     html += "<label>Signaling Path: <input name='signaling_path' value='" + String(config.signaling_path) + "'></label><br>";
-    html += "<label><input type='checkbox' name='ssl_enabled'" + (config.ssl_enabled ? " checked" : "") + "> SSL/DTLS</label><br>";
+    
+    // ✅ FIX: Безопасная конкатенация для чекбокса
+    html += "<label><input type='checkbox' name='ssl_enabled'";
+    html += config.ssl_enabled ? " checked" : "";
+    html += "> SSL/DTLS</label><br>";
+    
     html += "<button type='submit'>Save & Reboot</button>";
     html += "</form>";
     html += "<hr><h2>Change Password</h2>";
@@ -597,7 +593,6 @@ void handleConfig() {
     server.send(200, "text/html", html);
 }
 
-// ✅ Change password handler
 void handleChangePassword() {
     if (!require_auth()) return;
     
@@ -638,7 +633,6 @@ void handleSave() {
         String sig_path = server.arg("signaling_path");
         bool ssl_enabled = server.hasArg("ssl_enabled");
         
-        // ✅ FIX 11: Comprehensive input validation
         if (!isValidHostname(hostname)) {
             addSecurityHeaders();
             server.send(400, "text/plain", "Invalid hostname");
@@ -655,7 +649,6 @@ void handleSave() {
             return;
         }
         
-        // ✅ FIX 12: Safe EEPROM write
         safeEepromWrite(EEPROM_HOSTNAME_ADDR, hostname.c_str(), 32);
         safeEepromWrite(EEPROM_WIFI_SSID_ADDR, ssid.c_str(), 64);
         if (pass.length() > 0 && pass != "********") 
@@ -682,7 +675,6 @@ void loadConfig() {
     config.magic = EEPROM.read(0);
     
     if (config.magic == EEPROM_MAGIC) {
-        // ✅ FIX 13: Safe EEPROM read with null-termination guarantee
         safeEepromRead(EEPROM_HOSTNAME_ADDR, config.hostname, 32);
         safeEepromRead(EEPROM_WIFI_SSID_ADDR, config.wifi_ssid, 64);
         safeEepromRead(EEPROM_WIFI_PASS_ADDR, config.wifi_pass, 64);
@@ -777,7 +769,6 @@ void saveConfig() {
 void sendRtpAudio(uint8_t* data, size_t len) {
     if (!udp.beginPacket(config.server_host, config.server_udp_port)) return;
     
-    // ✅ RTP заголовок с корректным SSRC
     uint8_t rtp_hdr[12] = {
         0x80, 0x60,
         (uint8_t)(rtp_seq >> 8), (uint8_t)(rtp_seq & 0xFF),
@@ -801,14 +792,13 @@ void sendRtpAudio(uint8_t* data, size_t len) {
     udp.write(encrypted_data, encrypted_len);
     udp.endPacket();
     
-    // ✅ FIX 14: Explicit wrap-around for RTP sequence
     rtp_seq = (rtp_seq + 1) & 0xFFFF;
     rtp_ts = (rtp_ts + (len / 2)) & 0xFFFFFFFF;
     
     packets_sent++;
     bytes_sent += encrypted_len + 12;
     
-    free(encrypted_data);  // ✅ GUARANTEED free
+    free(encrypted_data);
 }
 
 void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
@@ -816,7 +806,6 @@ void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
         case WStype_CONNECTED: {
             LOG("✅ WS Connected");
             
-            // ✅ FIX 15: Larger JSON buffer
             DynamicJsonDocument doc(512);
             doc["type"] = "register";
             doc["id"] = config.hostname;
@@ -838,7 +827,6 @@ void wsEvent(WStype_t type, uint8_t * payload, size_t length) {
             }
             break;
         case WStype_TEXT: {
-            // ✅ FIX 16: Larger JSON buffer
             DynamicJsonDocument doc(512);
             DeserializationError error = deserializeJson(doc, payload);
             if (!error) {
@@ -884,7 +872,6 @@ void setup() {
     initButton();
     initAudioOutput();
     
-    // WiFi
     if (wifi_configured && strlen(config.wifi_ssid) > 0 && strcmp(config.wifi_ssid, "YOUR_WIFI_SSID") != 0) {
         LOG("📶 Connecting to WiFi: %s", config.wifi_ssid);
         WiFi.setHostname(config.hostname);
@@ -929,7 +916,6 @@ void setup() {
         }
     }
     
-    // Web routes
     server.on("/favicon.ico", handleFavicon);
     server.on("/", handleConfig);
     server.on("/login", HTTP_GET, handleLoginPage);
