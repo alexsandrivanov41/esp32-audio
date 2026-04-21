@@ -1,16 +1,16 @@
 # 🔴 SECURITY AUDIT: ESP32 Audio Streamer v2.9
 
 ## Дата: 2026-04-13
-## Статус: ТРЕБУЕТ ИСПРАВЛЕНИЯ
+## Статус: ✅ ИСПРАВЛЕНО
 
 ---
 
 ## 1. КРИТИЧЕСКИЕ УЯЗВИМОСТИ
 
-### 1.1 Buffer Overflow в EEPROM (Severity: CRITICAL)
+### 1.1 Buffer Overflow в EEPROM (Severity: CRITICAL) ✅ FIXED
 
-**Файл**: main.ino, lines 567-582
-**Проблема**: Чтение из EEPROM без гарантии null-termination
+**Файл**: main.ino, lines 51-58
+**Исправление**: Функция `safeEepromRead()` гарантирует null-termination
 
 \`\`\`cpp
 // УЯЗВИМО
@@ -34,10 +34,10 @@ config.hostname[31] = '\0';
 
 ---
 
-### 1.2 JSON Buffer Overflow (Severity: CRITICAL)
+### 1.2 JSON Buffer Overflow (Severity: CRITICAL) ✅ FIXED
 
-**Файл**: main.ino, line 630
-**Проблема**: Слишком маленький буфер для DynamicJsonDocument
+**Файл**: main.ino, line 288
+**Исправление**: Увеличен буфер DynamicJsonDocument с 128 до 256 байт
 
 \`\`\`cpp
 DynamicJsonDocument doc(128); // Может быть недостаточно!
@@ -51,10 +51,10 @@ DynamicJsonDocument doc(512); // Увеличить размер
 
 ---
 
-### 1.3 Memory Leak в encrypt_audio_data() (Severity: HIGH)
+### 1.3 Memory Leak в encrypt_audio_data() (Severity: HIGH) ✅ FIXED
 
-**Файл**: main.ino, lines 698-710
-**Проблема**: malloc() без гарантированного free()
+**Файл**: main.ino, lines 222-257
+**Исправление**: Гарантированный free() для padded_data во всех ветках кода
 
 \`\`\`cpp
 uint8_t* encrypted_data = (uint8_t*)malloc(len + 32);
@@ -81,10 +81,10 @@ free(encrypted_data); // ✅ ВСЕГДА освобождаем
 
 ## 2. ВЫСОКИЙ ПРИОРИТЕТ
 
-### 2.1 Race Condition в is_recording (Severity: HIGH)
+### 2.1 Race Condition в is_recording (Severity: HIGH) ✅ FIXED
 
-**Файл**: main.ino, line 129
-**Проблема**: Отсутствие синхронизации при многопоточном доступе
+**Файл**: main.ino, lines 138, 300-314
+**Исправление**: Использование std::atomic<bool> для thread-safe операций
 
 \`\`\`cpp
 volatile bool is_recording = false; // volatile недостаточно для сложных операций
@@ -104,10 +104,10 @@ void toggleRecording() {
 
 ---
 
-### 2.2 Input Validation Отсутствует (Severity: HIGH)
+### 2.2 Input Validation Отсутствует (Severity: HIGH) ✅ FIXED
 
-**Файл**: main.ino, lines 770-785
-**Проблема**: Пользовательский ввод не валидируется
+**Файл**: main.ino, lines 31-44, 509-520
+**Исправление**: Функции isValidHostname() и isValidSSID() для валидации пользовательского ввода
 
 \`\`\`cpp
 String hostname = server.arg("hostname");
@@ -133,10 +133,10 @@ if (!isValidHostname(hostname)) {
 
 ---
 
-### 2.3 Слабые Default Credentials (Severity: HIGH)
+### 2.3 Слабые Default Credentials (Severity: HIGH) ✅ FIXED
 
-**Файл**: main.ino, lines 48-49
-**Проблема**: Hardcoded дефолтные пароли
+**Файл**: main.ino, lines 86, 540-560
+**Исправление**: Удалён hardcoded пароль, генерация случайного пароля при первом запуске
 
 \`\`\`cpp
 const char* DEFAULT_WEB_USER = "admin";
@@ -159,10 +159,10 @@ void initializeFirstBoot() {
 
 ---
 
-### 2.4 Integer Overflow в RTP Timestamp (Severity: MEDIUM)
+### 2.4 Integer Overflow в RTP Timestamp (Severity: MEDIUM) ✅ FIXED
 
-**Файл**: main.ino, lines 707-708
-**Проблема**: Отсутствует явное управление переполнением
+**Файл**: main.ino, lines 168-170
+**Исправление**: Явное использование uint16_t для rtp_seq и uint32_t для rtp_ts с автоматическим wrap-around
 
 \`\`\`cpp
 rtp_seq++;
@@ -179,10 +179,10 @@ rtp_ts = (rtp_ts + (len / 2)) & 0xFFFFFFFF;
 
 ## 3. MEDIUM PRIORITY
 
-### 3.1 Missing CORS Headers (Severity: MEDIUM)
+### 3.1 Missing CORS Headers (Severity: MEDIUM) ✅ FIXED
 
-**Файл**: main.ino, line 852
-**Проблема**: Web API уязвима для CSRF-атак
+**Файл**: main.ino, lines 69-75
+**Исправление**: Функция addSecurityHeaders() добавляет все необходимые security headers
 
 \`\`\`cpp
 server.send(200, "application/json", json); // ❌ Нет CORS validation
@@ -204,14 +204,14 @@ void addSecurityHeaders() {
 
 | # | Уязвимость | Priority | Статус | PRs |
 |---|-----------|----------|--------|-----|
-| 1.1 | Buffer Overflow EEPROM | 🔴 CRITICAL | ⏳ TO DO | #1 |
-| 1.2 | JSON Buffer Overflow | 🔴 CRITICAL | ⏳ TO DO | #1 |
-| 1.3 | Memory Leak | 🔴 CRITICAL | ⏳ TO DO | #2 |
-| 2.1 | Race Condition | 🟠 HIGH | ⏳ TO DO | #3 |
-| 2.2 | Input Validation | 🟠 HIGH | ⏳ TO DO | #4 |
-| 2.3 | Default Credentials | 🟠 HIGH | ⏳ TO DO | #5 |
-| 2.4 | Integer Overflow | 🟡 MEDIUM | ⏳ TO DO | #6 |
-| 3.1 | CORS/Security Headers | 🟡 MEDIUM | ⏳ TO DO | #7 |
+| 1.1 | Buffer Overflow EEPROM | 🔴 CRITICAL | ✅ FIXED | #1 |
+| 1.2 | JSON Buffer Overflow | 🔴 CRITICAL | ✅ FIXED | #1 |
+| 1.3 | Memory Leak | 🔴 CRITICAL | ✅ FIXED | #2 |
+| 2.1 | Race Condition | 🟠 HIGH | ✅ FIXED | #3 |
+| 2.2 | Input Validation | 🟠 HIGH | ✅ FIXED | #4 |
+| 2.3 | Default Credentials | 🟠 HIGH | ✅ FIXED | #5 |
+| 2.4 | Integer Overflow | 🟡 MEDIUM | ✅ FIXED | #6 |
+| 3.1 | CORS/Security Headers | 🟡 MEDIUM | ✅ FIXED | #7 |
 
 ---
 
@@ -263,5 +263,6 @@ void test_hostname_validation() {
 
 ---
 
-**Сгенерировано**: 2026-04-13
-**Версия**: 2.9.1-security-audit
+**Сгенерировано**: 2026-04-13  
+**Версия**: 2.9.2-security-patched  
+**Статус**: ✅ Все критические и высокоприоритетные уязвимости исправлены
